@@ -15,7 +15,6 @@ You have two options to access MSFT resources on Arch Linux.
 
 1. Install `microsoft-identity-broker` packages in this repo. (Use quickinstall.sh as your will)
 2. Install `microsoft-edge-stable-bin` from AUR. 
-3. `[Temporary Fix]` Downgrade `tpm2-tss` to `3.2.0-1`, and add it to `IgnorePkg` in `/etc/pacman.conf`.
 
 ## Install Level-2 and enroll
 
@@ -71,16 +70,18 @@ You are all set!
 
 ## FAQ and debug
 
-You should be able to log into Edge browser without password. If Edge is not happy, check the following logs: 
+You should be able to log into Edge browser without password.
 
-1. Any error message in `sudo journalctl -u microsoft-identity-device-broker.service`? 
-2. Run `seahorse` and is there Intune entries in your `login` keyring? Is it `set as default`? 
+If intune-portal doesn't work, or Edge keeps asking you to login, check the following logs: 
 
-If you cannot do level-2 enroll, these additional logs might help:
+1. Any error message from intune-portal program? (stdout)
+2. Any error message in `sudo journalctl -u microsoft-identity-device-broker.service`? 
+3. Run `seahorse` and is there Intune entries in your `login` keyring? Is it `set as default`? 
+4. Any suspcious error message in `sudo journalctl -xe` and `journalctl -xe`?
 
-1. Any error message in `intune-daemon.socket, intune-daemon.service, intune-agent.timer`?
+If Edge login succeeded and you can access everything, but sync doesn't work (Not syncing), check the following additional logs:
 
-If everything looks good, also check `journalctl -xe` and `sudo journalctl -xe` for other information.
+1. Any error in `edge://sync-internals/`?
 
 <!-- for old broker 1.x
 ### Known bugs
@@ -125,6 +126,8 @@ This directory was renamed from `msft-identity-broker` to `microsoft-identity-br
 Install `opensc` and insert your Yubikey. This is necessary even if you are not going to use Yubikey auth.
 
 - Microsoft Edge crashed immediately on startup (SIGSEGV)
+
+> 2025.10 update: Just upgrade your microsoft-edge to latest stable. This problem has been fixed by upstream!
 
 If your Microsoft Edge crashes immediately on startup because of SIGSEGV, and GDB shows `Thread 107 "ThreadPoolForeg" received signal SIGSEGV, Segmentation fault.`
 
@@ -220,7 +223,7 @@ Try reboot. It works for me.
 
 - intune-portal 400 Bad Request, Couldnt enroll your device (or Open Company Portal and run a check on your device to get a current status)
 
-Follow the `How to delete MS account login cache` guide below, and try again.
+Follow the `How to clear intune-portal data?` guide below, and try again.
 
 If you are using intune-portal older than `1.2404.23`, please upgrade your intune-portal.
 
@@ -240,7 +243,7 @@ Install seahorse, create a "password keyring". You MUST set a password (because 
 
 Check if systemctl shows any java exception. It could be device broker service issue.
 
-Try the `How to delete existing enrollment data and enroll from fresh` guide below.
+Try the `How to clear device-broker data?` guide below.
 
 - intune-portal white screen on Manjaro: libEGL warning: egl: failed to create dri2 screen
 
@@ -254,9 +257,15 @@ This is not the root cause. ArchLinux has the same error message, and everything
 
 Run `journalctl | grep intune-agent | grep Reporting` to check what is intune-agent telling intune-portal. If you already updated `/etc/os-release` but intune-portal is not updated, please run `systemctl enable --user --now intune-agent.timer` manually.
 
-- intune-agent: Failed to checkin with intune. Failed updating device inventory details with Intune: Unexpected failure: Bad request (Error code 308)
+- intune-portal: Failed to checkin with intune. Failed updating device inventory details with Intune: Unexpected failure: Bad request (Error code 308)
 
 TODO...
+
+- intune-portal: Failed to checkin with intune. Failed updating device inventory details with Intune: Unexpected failure: Bad request (Error code 400)
+
+That's a server side bug. mitmproxy shows, your `device_id` is in a bad state so you must clear intune-portal data to get a new device id. HTTP response is `... detail: Device validation failed ...`
+
+Follow `How to clear intune-portal data?` to get a new `device_id` and try again.
 
 - intune-portal says not compliant: Sync your device with Intune
 
@@ -271,15 +280,13 @@ Sometimes, problem will disappear after few seconds. But it could take more than
 
 If you get this error when clicking `sign-in`, please try:
 
-Set env `export WEBKIT_DISABLE_DMABUF_RENDERER=1`. Ref: [link](https://bugs.webkit.org/show_bug.cgi?id=259644)
+Set env `export WEBKIT_DISABLE_DMABUF_RENDERER=1` before running intune-portal.
 
-Example:
+Ref: [link](https://bugs.webkit.org/show_bug.cgi?id=259644) [link2](https://github.com/recolic/microsoft-intune-archlinux/issues/3)
 
-```
-WEBKIT_DISABLE_DMABUF_RENDERER=1 /opt/microsoft/intune/bin/intune-portal
-```
+- intune-portal says compliant but Edge doesn't work
 
-Ref: <https://github.com/recolic/microsoft-intune-archlinux/issues/3>
+Check intune-portal log. Is there any ERROR like `Failed to checkin with intune`? It means intune believe your system is compliant, but failed to submit your device id to your organization server.
 
 - intune-portal is too old in this repo
 
@@ -293,22 +300,22 @@ Updating intune-portal won't help. I already tried.
 
 ### FAQ & Tricks
 
-- How to delete MS account login cache?
+- How to clear intune-portal data?
 
 ```
-rm -rf ~/.Microsoft ~/.cache/intune-portal ~/.config/intune
+rm -rf ~/.Microsoft ~/.cache/intune-portal ~/.config/intune ~/.local/share/intune-portal
 ```
 
-- How to delete existing enrollment data and enroll from fresh?
+- How to clear device-broker data?
 
 ```
-# TODO: double confirm if this guide still works for broker v2
+sudo systemctl stop microsoft-identity-device-broker.service
+
 rm -rf ~/.config/microsoft-identity-broker
 sudo rm -rf /var/lib/microsoft-identity-device-broker
 rm -f ~/.local/state/log/microsoft-identity-broker
+rm -rf ~/.local/state/microsoft-identity-broker
 mkdir -p ~/.config/microsoft-identity-broker
-
-sudo systemctl restart microsoft-identity-device-broker.service
 ```
 
 Then run `intune-portal`.
