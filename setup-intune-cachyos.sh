@@ -7,31 +7,31 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$SCRIPT_DIR"
 
-echo "=== Microsoft Intune Setup for CachyOS ==="
+echo "=== Microsoft Intune + Azure VPN Setup for CachyOS ==="
 echo ""
 
 # ── Step 1: Install system dependencies ──────────────────────────────────────
-echo "[1/9] Installing system dependencies..."
+echo "[1/11] Installing system dependencies..."
 sudo pacman -Sy --noconfirm --needed \
     webkit2gtk webkit2gtk-4.1 opensc bubblewrap \
     gnome-keyring libsecret seahorse \
-    pcscd yubikey-manager nss
+    pcscd yubikey-manager nss zenity
 
 # ── Step 2: Build and install broker + intune-portal ─────────────────────────
-echo "[2/9] Building and installing microsoft-identity-broker..."
+echo "[2/11] Building and installing microsoft-identity-broker..."
 (cd "$REPO_DIR/microsoft-identity-broker" && makepkg -si --noconfirm)
 
 echo "       Building and installing intune-portal..."
 (cd "$REPO_DIR/intune-portal" && makepkg -si --noconfirm)
 
 # ── Step 3: Create broker storage directories ────────────────────────────────
-echo "[3/9] Creating broker storage directories..."
+echo "[3/11] Creating broker storage directories..."
 sudo mkdir -p /etc/microsoft/identity-broker/{certs,private}
 sudo chmod 700 /etc/microsoft/identity-broker/private
 sudo mkdir -p /var/opt/microsoft/identity-broker
 
 # ── Step 4: Fake Ubuntu os-release (bind-mounted, real file untouched) ───────
-echo "[4/9] Setting up Ubuntu os-release for Intune..."
+echo "[4/11] Setting up Ubuntu os-release for Intune..."
 sudo tee /etc/os-release.ubuntu > /dev/null << 'EOF'
 PRETTY_NAME="Ubuntu 24.04.2 LTS"
 NAME="Ubuntu"
@@ -79,7 +79,7 @@ WRAPPER
 sudo chmod +x /usr/bin/intune-portal
 
 # ── Step 5: Disable lsb_release (contradicts fake os-release) ────────────────
-echo "[5/9] Disabling lsb_release..."
+echo "[5/11] Disabling lsb_release..."
 if [ -f /usr/bin/lsb_release ] && [ ! -f /usr/bin/lsb_release.backup ]; then
     sudo mv /usr/bin/lsb_release /usr/bin/lsb_release.backup
     echo "       Moved to /usr/bin/lsb_release.backup"
@@ -88,7 +88,7 @@ else
 fi
 
 # ── Step 6: NVIDIA + Wayland workaround ──────────────────────────────────────
-echo "[6/9] Configuring NVIDIA/Wayland workaround..."
+echo "[6/11] Configuring NVIDIA/Wayland workaround..."
 if lspci 2>/dev/null | grep -qi nvidia; then
     if ! grep -q 'WEBKIT_DISABLE_DMABUF_RENDERER' /etc/environment 2>/dev/null; then
         echo 'WEBKIT_DISABLE_DMABUF_RENDERER="1"' | sudo tee -a /etc/environment
@@ -101,7 +101,7 @@ else
 fi
 
 # ── Step 7: PAM configuration for Intune compliance ──────────────────────────
-echo "[7/9] Setting up PAM common-password for Intune compliance..."
+echo "[7/11] Setting up PAM common-password for Intune compliance..."
 if [ ! -f /etc/pam.d/common-password ]; then
     sudo tee /etc/pam.d/common-password > /dev/null << 'EOF'
 #
@@ -133,7 +133,7 @@ else
 fi
 
 # ── Step 8: YubiKey / SmartCard / PRMFA setup ────────────────────────────────
-echo "[8/9] Setting up YubiKey/SmartCard support..."
+echo "[8/11] Setting up YubiKey/SmartCard support..."
 sudo systemctl enable --now pcscd
 
 # NSS database for certificate-based auth
@@ -156,10 +156,70 @@ else
 fi
 
 # ── Step 9: Enable services and reload ───────────────────────────────────────
-echo "[9/9] Enabling services..."
+echo "[9/11] Enabling services..."
 sudo systemctl daemon-reload
 systemctl --user daemon-reload
 systemctl enable --user --now intune-agent.timer
+
+# ── Step 10: Install Azure VPN Client ────────────────────────────────────────
+echo "[10/11] Installing Microsoft Azure VPN Client..."
+AUR_HELPER=""
+if command -v yay &>/dev/null; then
+    AUR_HELPER="yay"
+elif command -v paru &>/dev/null; then
+    AUR_HELPER="paru"
+fi
+
+if [ -n "$AUR_HELPER" ]; then
+    $AUR_HELPER -S --noconfirm --needed microsoft-azure-vpn-client-bin
+else
+    echo "       No AUR helper found (yay/paru). Install microsoft-azure-vpn-client-bin manually."
+fi
+
+# Add user to network group (required by Azure VPN on Arch)
+if ! id -nG "$USER" | grep -qw network; then
+    sudo usermod -aG network "$USER"
+    echo "       Added $USER to network group (re-login required)"
+fi
+
+# Azure VPN requires VERSION in os-release
+if ! grep -q '^VERSION=' /etc/os-release; then
+    echo 'VERSION="0"' | sudo tee -a /etc/os-release > /dev/null
+    echo "       Added VERSION to /etc/os-release"
+fi
+
+# Symlink VPN binary to PATH if not already there
+if [ ! -f /usr/bin/microsoft-azurevpnclient ] && [ -f /opt/microsoft/microsoft-azurevpnclient/microsoft-azurevpnclient ]; then
+    sudo ln -s /opt/microsoft/microsoft-azurevpnclient/microsoft-azurevpnclient /usr/bin/microsoft-azurevpnclient
+    echo "       Symlinked microsoft-azurevpnclient to /usr/bin"
+fi
+
+# ── Step 11: Fix XDG Desktop Portal for Hyprland ────────────────────────────
+# On Hyprland, the GTK portal (which handles FileChooser and OAuth redirects)
+# has UseIn=gnome so it never activates. This breaks file import dialogs and
+# OAuth authentication in apps like the Azure VPN Client.
+echo "[11/11] Configuring XDG desktop portal for Hyprland..."
+if [ "$XDG_CURRENT_DESKTOP" = "Hyprland" ] || pgrep -x Hyprland &>/dev/null; then
+    PORTAL_CONF="$HOME/.config/xdg-desktop-portal/portals.conf"
+    mkdir -p "$(dirname "$PORTAL_CONF")"
+    if [ ! -f "$PORTAL_CONF" ]; then
+        cat > "$PORTAL_CONF" << 'EOF'
+[preferred]
+default=gtk
+org.freedesktop.impl.portal.Screenshot=hyprland
+org.freedesktop.impl.portal.ScreenCast=hyprland
+org.freedesktop.impl.portal.GlobalShortcuts=hyprland
+EOF
+        echo "       Created portals.conf (GTK as default, Hyprland for screen capture)"
+    else
+        echo "       portals.conf already exists, skipping"
+    fi
+    # Restart portals to pick up new config
+    pkill -f "xdg-desktop-portal" 2>/dev/null || true
+    echo "       Portal processes restarted (will respawn on demand)"
+else
+    echo "       Not running Hyprland, skipping"
+fi
 
 echo ""
 echo "=== Setup complete ==="
@@ -171,14 +231,19 @@ echo "     - Open 'seahorse' (Passwords and Keys)"
 echo "     - File > New > Password Keyring"
 echo "     - Name it 'login' and SET A PASSWORD"
 echo ""
-echo "  2. Log out and back in (to pick up environment changes)"
+echo "  2. Log out and back in (to pick up environment and group changes)"
 echo ""
 echo "  3. Enroll your device:"
 echo "     - Run 'intune-portal'"
 echo "     - Sign in with your Microsoft account"
 echo "     - If using YubiKey, unlock when prompted"
 echo ""
-echo "  4. Verify enrollment:"
+echo "  4. Connect Azure VPN:"
+echo "     - Run 'microsoft-azurevpnclient'"
+echo "     - Import your VPN profile XML"
+echo "     - Click Connect and authenticate"
+echo ""
+echo "  5. Verify enrollment:"
 echo "     - Open Microsoft Edge and sign in"
 echo "     - You should not be prompted for a password again"
 echo ""
