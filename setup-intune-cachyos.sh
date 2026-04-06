@@ -15,7 +15,7 @@ echo "[1/11] Installing system dependencies..."
 sudo pacman -Sy --noconfirm --needed \
     webkit2gtk webkit2gtk-4.1 opensc bubblewrap \
     gnome-keyring libsecret seahorse \
-    pcscd yubikey-manager nss zenity
+    pcsclite yubikey-manager nss zenity
 
 # ── Step 2: Build and install broker + intune-portal ─────────────────────────
 echo "[2/11] Building and installing microsoft-identity-broker..."
@@ -71,6 +71,7 @@ fi
 sudo tee /usr/bin/intune-portal > /dev/null << 'WRAPPER'
 #!/bin/bash
 export WEBKIT_DISABLE_DMABUF_RENDERER=1
+export GDK_BACKEND=x11
 exec bwrap \
   --dev-bind / / \
   --ro-bind /etc/os-release.ubuntu /etc/os-release \
@@ -87,17 +88,13 @@ else
     echo "       Already handled"
 fi
 
-# ── Step 6: NVIDIA + Wayland workaround ──────────────────────────────────────
-echo "[6/11] Configuring NVIDIA/Wayland workaround..."
-if lspci 2>/dev/null | grep -qi nvidia; then
-    if ! grep -q 'WEBKIT_DISABLE_DMABUF_RENDERER' /etc/environment 2>/dev/null; then
-        echo 'WEBKIT_DISABLE_DMABUF_RENDERER="1"' | sudo tee -a /etc/environment
-        echo "       Added WEBKIT_DISABLE_DMABUF_RENDERER to /etc/environment"
-    else
-        echo "       Already set"
-    fi
+# ── Step 6: Wayland workaround ──────────────────────────────────────────────
+echo "[6/11] Configuring Wayland workarounds..."
+if ! grep -q 'WEBKIT_DISABLE_DMABUF_RENDERER' /etc/environment 2>/dev/null; then
+    echo 'WEBKIT_DISABLE_DMABUF_RENDERER="1"' | sudo tee -a /etc/environment
+    echo "       Added WEBKIT_DISABLE_DMABUF_RENDERER to /etc/environment"
 else
-    echo "       No NVIDIA GPU detected, skipping"
+    echo "       WEBKIT_DISABLE_DMABUF_RENDERER already set"
 fi
 
 # ── Step 7: PAM configuration for Intune compliance ──────────────────────────
@@ -154,6 +151,18 @@ else
         echo "       SC Module already in NSS database"
     fi
 fi
+
+# ── Step 8b: Force X11 backend for broker GTK dialogs (Wayland PIN fix) ─────
+# The broker uses gtk_dialog_run() for the smartcard PIN prompt, which
+# malfunctions under Hyprland/Wayland causing an infinite prompt loop.
+echo "       Configuring GDK_BACKEND=x11 for identity broker..."
+BROKER_DROP_IN="/etc/systemd/user/microsoft-identity-broker.service.d"
+sudo mkdir -p "$BROKER_DROP_IN"
+sudo tee "$BROKER_DROP_IN/wayland-fix.conf" > /dev/null << 'EOF'
+[Service]
+Environment=GDK_BACKEND=x11
+Environment=WEBKIT_DISABLE_DMABUF_RENDERER=1
+EOF
 
 # ── Step 9: Enable services and reload ───────────────────────────────────────
 echo "[9/11] Enabling services..."
@@ -236,7 +245,7 @@ echo ""
 echo "  3. Enroll your device:"
 echo "     - Run 'intune-portal'"
 echo "     - Sign in with your Microsoft account"
-echo "     - If using YubiKey, unlock when prompted"
+echo "     - If using YubiKey, enter your PIV PIN when prompted (not your FIDO PIN)"
 echo ""
 echo "  4. Connect Azure VPN:"
 echo "     - Run 'microsoft-azurevpnclient'"
