@@ -13,7 +13,7 @@ echo ""
 # ── Step 1: Install system dependencies ──────────────────────────────────────
 echo "[1/11] Installing system dependencies..."
 sudo pacman -Sy --noconfirm --needed \
-    webkit2gtk webkit2gtk-4.1 opensc bubblewrap \
+    webkit2gtk-4.1 opensc bubblewrap \
     gnome-keyring libsecret seahorse \
     pcsclite yubikey-manager nss zenity
 
@@ -153,16 +153,66 @@ else
 fi
 
 # ── Step 8b: Force X11 backend for broker GTK dialogs (Wayland PIN fix) ─────
-# The broker uses gtk_dialog_run() for the smartcard PIN prompt, which
-# malfunctions under Hyprland/Wayland causing an infinite prompt loop.
-echo "       Configuring GDK_BACKEND=x11 for identity broker..."
-BROKER_DROP_IN="/etc/systemd/user/microsoft-identity-broker.service.d"
-sudo mkdir -p "$BROKER_DROP_IN"
-sudo tee "$BROKER_DROP_IN/wayland-fix.conf" > /dev/null << 'EOF'
-[Service]
-Environment=GDK_BACKEND=x11
-Environment=WEBKIT_DISABLE_DMABUF_RENDERER=1
+# The user broker is launched on demand by D-Bus (see
+# /usr/share/dbus-1/services/com.microsoft.identity.broker1.service) as the
+# transient unit dbus-:1.2-com.microsoft.identity.broker1@0.service, so a
+# systemd drop-in cannot inject env into it. Instead, wrap the binary and
+# override the D-Bus service file in /etc (which takes precedence over
+# /usr/share, so it survives package upgrades).
+#
+# Symptom this fixes: under Wayland (KDE Plasma 6, Hyprland, etc.) the
+# broker's gtk_dialog_run() smartcard PIN prompt loops -- you get prompted
+# for the PIN, the dialog disappears, and you are prompted again, then the
+# broker returns an error.
+echo "       Installing broker X11 wrapper for Wayland PIN fix..."
+sudo tee /opt/microsoft/identity-broker/bin/microsoft-identity-broker.wrapper > /dev/null << 'EOF'
+#!/bin/bash
+export GDK_BACKEND=x11
+export WEBKIT_DISABLE_DMABUF_RENDERER=1
+exec /opt/microsoft/identity-broker/bin/microsoft-identity-broker "$@"
 EOF
+sudo chmod +x /opt/microsoft/identity-broker/bin/microsoft-identity-broker.wrapper
+
+sudo mkdir -p /etc/dbus-1/services
+sudo tee /etc/dbus-1/services/com.microsoft.identity.broker1.service > /dev/null << 'EOF'
+# Local override of /usr/share/dbus-1/services/com.microsoft.identity.broker1.service
+# Routes broker startup through a wrapper that forces GDK_BACKEND=x11.
+[D-BUS Service]
+Name=com.microsoft.identity.broker1
+Exec=/opt/microsoft/identity-broker/bin/microsoft-identity-broker.wrapper
+EOF
+
+# Remove any stale drop-in from previous versions of this script that
+# targeted the (non-existent) microsoft-identity-broker.service unit.
+sudo rm -rf /etc/systemd/user/microsoft-identity-broker.service.d
+
+# ── Step 8c: Enable OpenSC PIN cache (avoids double PIN prompt) ─────────────
+# By default OpenSC re-prompts for the PIV PIN on every PKCS#11 C_Login.
+# The broker performs at least two C_Login calls per token acquisition (cert
+# read + signature), so the user is prompted twice. Enabling the PKCS#15 PIN
+# cache keeps the PIN in mlocked memory inside the broker process for a few
+# operations, so a single token acquisition only prompts once. The cache is
+# wiped when the PKCS#11 session closes.
+echo "       Enabling OpenSC PIN cache (avoids double PIN prompt)..."
+if [ -f /etc/opensc.conf ] && ! grep -q 'use_pin_cache' /etc/opensc.conf; then
+    sudo cp -a /etc/opensc.conf /etc/opensc.conf.bak.$(date +%Y%m%d-%H%M%S)
+    sudo tee /etc/opensc.conf > /dev/null << 'EOF'
+# OpenSC configuration for Microsoft Intune broker.
+app default {
+    # debug = 3;
+    # debug_file = /tmp/opensc-debug.txt;
+    pin_cache_ignore_user_consent = true;
+    framework pkcs15 {
+        use_pin_cache = true;
+        pin_cache_counter = 10;
+        pin_cache_ignore_user_consent = true;
+    }
+}
+EOF
+    echo "       Updated /etc/opensc.conf (backup saved)"
+else
+    echo "       /etc/opensc.conf already configured for PIN caching"
+fi
 
 # ── Step 9: Enable services and reload ───────────────────────────────────────
 echo "[9/11] Enabling services..."
