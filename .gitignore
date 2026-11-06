@@ -2,3 +2,5 @@ src
 pkg
 *.deb
 *.zst
+__pycache__/
+*.pyc

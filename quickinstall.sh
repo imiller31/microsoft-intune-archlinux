@@ -5,9 +5,8 @@ function i () {
         makepkg -i
 }
 
-sudo pacman -Sy --noconfirm --asdeps --needed webkit2gtk-4.1 opensc
+sudo pacman -Syu --noconfirm --asdeps --needed webkit2gtk-4.1 opensc
 ( i microsoft-identity-broker )
 ( i intune-portal )
 
 echo "Done. Don't forget to run 'systemctl enable --user --now intune-agent.timer' and follow the rest steps."
-

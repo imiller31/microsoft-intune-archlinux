@@ -4,6 +4,36 @@
 # Requires: sudo access, internet connection
 set -euo pipefail
 
+SKIP_VPN=0
+ENABLE_PIN_CACHE=0
+for argument in "$@"; do
+    case "$argument" in
+        --skip-vpn) SKIP_VPN=1 ;;
+        --enable-pin-cache) ENABLE_PIN_CACHE=1 ;;
+        -h|--help)
+            echo "Usage: bash setup-intune-cachyos.sh [--skip-vpn] [--enable-pin-cache]"
+            echo "Run as your desktop user. Upgrades Arch and configures Intune, smartcards, and optionally VPN."
+            echo "Review privileged changes first. Enrollment and MDE setup are separate, explicit steps."
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $argument" >&2
+            exit 2
+            ;;
+    esac
+done
+
+if (( EUID == 0 )); then
+    echo "Run this script as your desktop user, not root; makepkg and user services require that user." >&2
+    exit 1
+fi
+
+. /etc/os-release
+if [[ "$ID" != arch && " ${ID_LIKE:-} " != *" arch "* ]]; then
+    echo "This script requires Arch Linux or an Arch-derived distribution." >&2
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$SCRIPT_DIR"
 
@@ -12,7 +42,8 @@ echo ""
 
 # ── Step 1: Install system dependencies ──────────────────────────────────────
 echo "[1/11] Installing system dependencies..."
-sudo pacman -Sy --noconfirm --needed \
+sudo pacman -Syu --noconfirm --needed \
+    base-devel git libpwquality p11-kit xorg-xwayland \
     webkit2gtk-4.1 opensc bubblewrap \
     gnome-keyring libsecret seahorse \
     pcsclite yubikey-manager nss zenity
@@ -143,7 +174,9 @@ OPENSC_LIB=$(find /usr/lib -name 'opensc-pkcs11.so' -print -quit 2>/dev/null)
 if [ -z "$OPENSC_LIB" ]; then
     echo "       WARNING: opensc-pkcs11.so not found!"
 else
-    modutil -force -create -dbdir "sql:$NSSDB" 2>/dev/null || true
+    if [ ! -f "$NSSDB/cert9.db" ]; then
+        modutil -force -create -dbdir "sql:$NSSDB"
+    fi
     if ! modutil -dbdir "sql:$NSSDB" -list 2>/dev/null | grep -q "SC Module"; then
         modutil -force -dbdir "sql:$NSSDB" -add 'SC Module' -libfile "$OPENSC_LIB"
         echo "       Added SC Module to NSS database"
@@ -182,36 +215,28 @@ Name=com.microsoft.identity.broker1
 Exec=/opt/microsoft/identity-broker/bin/microsoft-identity-broker.wrapper
 EOF
 
-# Remove any stale drop-in from previous versions of this script that
-# targeted the (non-existent) microsoft-identity-broker.service unit.
-sudo rm -rf /etc/systemd/user/microsoft-identity-broker.service.d
+# Remove only the obsolete drop-in created by earlier script versions.
+sudo rm -f /etc/systemd/user/microsoft-identity-broker.service.d/wayland-fix.conf
+if [ -d /etc/systemd/user/microsoft-identity-broker.service.d ]; then
+    sudo rmdir --ignore-fail-on-non-empty /etc/systemd/user/microsoft-identity-broker.service.d
+fi
 
-# ── Step 8c: Enable OpenSC PIN cache (avoids double PIN prompt) ─────────────
-# By default OpenSC re-prompts for the PIV PIN on every PKCS#11 C_Login.
-# The broker performs at least two C_Login calls per token acquisition (cert
-# read + signature), so the user is prompted twice. Enabling the PKCS#15 PIN
-# cache keeps the PIN in mlocked memory inside the broker process for a few
-# operations, so a single token acquisition only prompts once. The cache is
-# wiped when the PKCS#11 session closes.
-echo "       Enabling OpenSC PIN cache (avoids double PIN prompt)..."
-if [ -f /etc/opensc.conf ] && ! grep -q 'use_pin_cache' /etc/opensc.conf; then
-    sudo cp -a /etc/opensc.conf /etc/opensc.conf.bak.$(date +%Y%m%d-%H%M%S)
+# ── Step 8c: Optional OpenSC PIN cache ──────────────────────────────────────
+if (( ENABLE_PIN_CACHE )) && [ ! -s /etc/opensc.conf ]; then
+    echo "       Creating opt-in OpenSC PIN cache configuration..."
     sudo tee /etc/opensc.conf > /dev/null << 'EOF'
 # OpenSC configuration for Microsoft Intune broker.
 app default {
-    # debug = 3;
-    # debug_file = /tmp/opensc-debug.txt;
-    pin_cache_ignore_user_consent = true;
     framework pkcs15 {
         use_pin_cache = true;
         pin_cache_counter = 10;
-        pin_cache_ignore_user_consent = true;
     }
 }
 EOF
-    echo "       Updated /etc/opensc.conf (backup saved)"
+elif (( ENABLE_PIN_CACHE )); then
+    echo "       Existing /etc/opensc.conf preserved; review PIN cache settings manually."
 else
-    echo "       /etc/opensc.conf already configured for PIN caching"
+    echo "       PIN cache unchanged (opt in with --enable-pin-cache)."
 fi
 
 # ── Step 9: Enable services and reload ───────────────────────────────────────
@@ -222,35 +247,39 @@ systemctl enable --user --now intune-agent.timer
 
 # ── Step 10: Install Azure VPN Client ────────────────────────────────────────
 echo "[10/11] Installing Microsoft Azure VPN Client..."
-AUR_HELPER=""
-if command -v yay &>/dev/null; then
-    AUR_HELPER="yay"
-elif command -v paru &>/dev/null; then
-    AUR_HELPER="paru"
-fi
-
-if [ -n "$AUR_HELPER" ]; then
-    $AUR_HELPER -S --noconfirm --needed microsoft-azure-vpn-client-bin
+if (( SKIP_VPN )); then
+    echo "       Skipped (--skip-vpn)."
 else
-    echo "       No AUR helper found (yay/paru). Install microsoft-azure-vpn-client-bin manually."
-fi
+    AUR_HELPER=""
+    if command -v yay &>/dev/null; then
+        AUR_HELPER="yay"
+    elif command -v paru &>/dev/null; then
+        AUR_HELPER="paru"
+    fi
 
-# Add user to network group (required by Azure VPN on Arch)
-if ! id -nG "$USER" | grep -qw network; then
-    sudo usermod -aG network "$USER"
-    echo "       Added $USER to network group (re-login required)"
-fi
+    if [ -n "$AUR_HELPER" ]; then
+        "$AUR_HELPER" -S --noconfirm --needed microsoft-azure-vpn-client-bin
+    else
+        echo "       No AUR helper found (yay/paru). Install microsoft-azure-vpn-client-bin manually."
+    fi
 
-# Azure VPN requires VERSION in os-release
-if ! grep -q '^VERSION=' /etc/os-release; then
-    echo 'VERSION="0"' | sudo tee -a /etc/os-release > /dev/null
-    echo "       Added VERSION to /etc/os-release"
-fi
+    # Add user to network group (required by Azure VPN on Arch)
+    if ! id -nG "$USER" | grep -qw network; then
+        sudo usermod -aG network "$USER"
+        echo "       Added $USER to network group (re-login required)"
+    fi
 
-# Symlink VPN binary to PATH if not already there
-if [ ! -f /usr/bin/microsoft-azurevpnclient ] && [ -f /opt/microsoft/microsoft-azurevpnclient/microsoft-azurevpnclient ]; then
-    sudo ln -s /opt/microsoft/microsoft-azurevpnclient/microsoft-azurevpnclient /usr/bin/microsoft-azurevpnclient
-    echo "       Symlinked microsoft-azurevpnclient to /usr/bin"
+    # Azure VPN requires VERSION in os-release
+    if ! grep -q '^VERSION=' /etc/os-release; then
+        echo 'VERSION="0"' | sudo tee -a /etc/os-release > /dev/null
+        echo "       Added VERSION to /etc/os-release"
+    fi
+
+    # Symlink VPN binary to PATH if not already there
+    if [ ! -f /usr/bin/microsoft-azurevpnclient ] && [ -f /opt/microsoft/microsoft-azurevpnclient/microsoft-azurevpnclient ]; then
+        sudo ln -s /opt/microsoft/microsoft-azurevpnclient/microsoft-azurevpnclient /usr/bin/microsoft-azurevpnclient
+        echo "       Symlinked microsoft-azurevpnclient to /usr/bin"
+    fi
 fi
 
 # ── Step 11: Fix XDG Desktop Portal for Hyprland ────────────────────────────
@@ -258,7 +287,7 @@ fi
 # has UseIn=gnome so it never activates. This breaks file import dialogs and
 # OAuth authentication in apps like the Azure VPN Client.
 echo "[11/11] Configuring XDG desktop portal for Hyprland..."
-if [ "$XDG_CURRENT_DESKTOP" = "Hyprland" ] || pgrep -x Hyprland &>/dev/null; then
+if [ "${XDG_CURRENT_DESKTOP:-}" = "Hyprland" ] || pgrep -x Hyprland &>/dev/null; then
     PORTAL_CONF="$HOME/.config/xdg-desktop-portal/portals.conf"
     mkdir -p "$(dirname "$PORTAL_CONF")"
     if [ ! -f "$PORTAL_CONF" ]; then
@@ -273,9 +302,10 @@ EOF
     else
         echo "       portals.conf already exists, skipping"
     fi
-    # Restart portals to pick up new config
-    pkill -f "xdg-desktop-portal" 2>/dev/null || true
-    echo "       Portal processes restarted (will respawn on demand)"
+    if systemctl --user is-active --quiet xdg-desktop-portal.service; then
+        systemctl --user restart xdg-desktop-portal.service
+        echo "       Desktop portal service restarted."
+    fi
 else
     echo "       Not running Hyprland, skipping"
 fi
@@ -304,5 +334,10 @@ echo "     - Click Connect and authenticate"
 echo ""
 echo "  5. Verify enrollment:"
 echo "     - Open Microsoft Edge and sign in"
-echo "     - You should not be prompted for a password again"
+echo "     - Check intune-agent.service logs for a successful check-in"
+echo "     - Confirm device enrollment and compliance in your organization's portal"
+echo ""
+echo "  6. Set up Microsoft Defender for Endpoint separately:"
+echo "     - See .github/skills/arch-intune-mde/SETUP.md for installation and safe onboarding"
+echo "     - This script does not install or onboard MDE"
 echo ""

@@ -1,5 +1,29 @@
 # Intune for Arch Linux
 
+## This fork: CachyOS setup and agent skill
+
+The `cachyos-setup-script` branch retains CachyOS/KDE/Hyprland setup support
+alongside upstream fixes. Read [setup-intune-cachyos.sh](setup-intune-cachyos.sh)
+before running it as your desktop user. It performs a full system upgrade and
+privileged compatibility changes; `--skip-vpn` omits VPN setup. Smartcard PIN
+caching is opt-in with `--enable-pin-cache` and preserves existing OpenSC policy.
+It does not install or enroll Defender, and browser SSO alone is not compliance.
+
+The repository-only [arch-intune-mde agent skill](.github/skills/arch-intune-mde/SKILL.md)
+guides Intune enrollment and explicit MDE onboarding. Its
+[setup reference](.github/skills/arch-intune-mde/SETUP.md) includes diagnostics and
+disposable VM validation. The bundled onboarding helper previews local signed
+payloads without executing downloaded scripts, and supports backed-up,
+same-tenant updates with explicit approval. Keep real onboarding files private
+and outside this repository.
+
+[Arch setup checks](.github/workflows/arch-setup-checks.yml) runs synthetic tests
+on GitHub-hosted infrastructure, not an enrolled workstation. Live enrollment,
+hardware MFA, antivirus operation, and corporate compliance require a separately
+approved disposable VM test.
+
+## Upstream guidance
+
 > To avoid breaking existing setup, **this repo will stay outdated until it stops working.**
 
 ## Before even start
@@ -358,4 +382,3 @@ Then run `intune-portal`.
 |Arch Linux + Xorg Xfce4    |2024.01|Level1 + Level2|
 |Manjaro Linux + Wayland KDE|240113 |Level1 + Level2|
 |Arch Linux + Wayland Gnome |2024.02|Level1 + Level2|
-
