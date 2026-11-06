@@ -18,7 +18,7 @@ jobs:
     steps:
       - name: Install check tools in disposable Arch container
         run: pacman -Syu --noconfirm --needed git python shellcheck
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: Check shell scripts
@@ -31,5 +31,7 @@ jobs:
         run: |
           useradd --create-home builder
           for package in intune-portal microsoft-identity-broker; do
-            (cd "$package" && runuser -u builder -- makepkg --printsrcinfo > /dev/null)
+            cp -R "$package" /home/builder/
+            chown -R builder:builder "/home/builder/$package"
+            (cd "/home/builder/$package" && runuser -u builder -- makepkg --printsrcinfo > /dev/null)
           done
