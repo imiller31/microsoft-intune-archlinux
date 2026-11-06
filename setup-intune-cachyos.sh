@@ -103,9 +103,11 @@ sudo tee /usr/bin/intune-portal > /dev/null << 'WRAPPER'
 #!/bin/bash
 export WEBKIT_DISABLE_DMABUF_RENDERER=1
 export GDK_BACKEND=x11
+# Bubblewrap rejects symlink mount destinations, as used by Arch os-release.
+os_release=$(readlink -f /etc/os-release) || exit 1
 exec bwrap \
   --dev-bind / / \
-  --ro-bind /etc/os-release.ubuntu /etc/os-release \
+  --ro-bind /etc/os-release.ubuntu "$os_release" \
   /usr/bin/intune-portal.real "$@"
 WRAPPER
 sudo chmod +x /usr/bin/intune-portal
