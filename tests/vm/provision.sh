@@ -68,6 +68,8 @@ EOF
 cat > /etc/systemd/user/arch-e2e-desktop.service <<'EOF'
 [Unit]
 Description=Disposable test desktop
+BindsTo=graphical-session.target
+Before=graphical-session.target
 StartLimitIntervalSec=0
 [Service]
 Environment=DISPLAY=:99
