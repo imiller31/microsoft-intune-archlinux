@@ -17,6 +17,10 @@ payloads without executing downloaded scripts, and supports backed-up,
 same-tenant updates with explicit approval. Keep real onboarding files private
 and outside this repository.
 
+For a fresh AUR Defender installation, follow the setup reference's first-start
+initialization before starting the service. Existing Defender state is preserved
+for administrator review, not reset.
+
 [Arch setup checks](.github/workflows/arch-setup-checks.yml) runs synthetic tests
 on GitHub-hosted infrastructure, not an enrolled workstation. Live enrollment,
 hardware MFA, antivirus operation, and corporate compliance require a separately

@@ -205,6 +205,12 @@ an end-to-end skill pass. The future agent lane must use approved CI model
 authentication, execute the skill as the desktop user, and reuse the host's
 independent verifier; agent-written summaries cannot satisfy the oracle.
 
+The [verified installation run](https://github.com/imiller31/microsoft-intune-archlinux/actions/runs/42280457638)
+at commit `6cb733f` passed installation, repeated setup, and reboot verification.
+It also confirmed that fresh-state initialization eliminates the observed MDE
+UUID failures without onboarding. This X11/Xfce run does not cover CachyOS,
+KDE/Wayland, smartcard PIN entry, or corporate authentication.
+
 ## Public references
 
 - [Microsoft Linux enrollment](https://learn.microsoft.com/en-us/intune/intune-service/user-help/enroll-device-linux)
