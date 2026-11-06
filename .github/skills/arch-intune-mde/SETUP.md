@@ -61,6 +61,24 @@ AUR workflow. Confirm package integrity, the `mdatp` account, and the vendor
 systemd unit. Intune's namespace workaround should not be applied to Defender.
 Do not modify `/etc/os-release` to convince a vendor installer that Arch is Ubuntu.
 
+The reviewed AUR package omits the vendor Debian post-install state
+initialization. A fresh, unenrolled VM reproduced UUID exceptions even without
+an onboarding package. Before the **first** service start on a genuinely new
+installation, review and preview the first-start helper:
+
+```sh
+python3 .github/skills/arch-intune-mde/scripts/initialize_mde.py
+sudo systemctl daemon-reload
+sudo python3 .github/skills/arch-intune-mde/scripts/initialize_mde.py --apply
+```
+
+It creates private initial MDE state using the vendor's identity fields and
+DMI-first/generated-UUID fallback. It leaves system identifiers unchanged and
+refuses existing state, enrollment configuration, or an active service.
+Existing or previously started installations require private administrator
+review instead; deleting state to rerun this helper risks device identity loss.
+This is a community packaging workaround, not a vendor-supported Arch installer.
+
 ```sh
 sudo systemctl enable --now mdatp.service
 sudo env -u LD_PRELOAD -u LD_AUDIT -u LD_LIBRARY_PATH mdatp health
@@ -112,16 +130,17 @@ Never equate `healthy: true` with active antivirus: inspect `engine_load_status`
 | --- | --- |
 | Cannot connect to daemon | Check service status and journal; compare a clean loader environment. |
 | Missing license, no organization | Check whether onboarding JSON exists and matches the current approved package; inspect EDR startup logs before assuming the tenant lacks a subscription. |
-| UUID exception during onboarding | Validate payload structure, compare current versus legacy signed packages, and inspect system identifiers without printing them. Preserve `wdavstate` and machine IDs. |
+| UUID exception | Check whether the package initialized `wdavstate`; fresh AUR installations can fail before onboarding. Preserve existing state and machine IDs. Then review payload structure and current versus legacy signed packages privately. |
 | Organization mismatch or offboarding file | Stop and obtain administrator guidance. |
 | Service works but CLI fails | Loader injection can be rejected by Defender. Use the clean-environment commands above; do not weaken the daemon's loader checks. |
 | Cloud connectivity fails | Check required endpoints, proxy configuration, and TLS trust using Microsoft's connectivity guidance; retain certificate validation. |
 | Healthy but passive/engine unloaded | Enrollment is not proof of antivirus readiness. Inspect tenant policy and engine logs before making protection changes. |
 
-During development, a legacy Python onboarding payload parsed successfully but
-caused UUID exceptions with the installed agent. The same organization's newer
-deployment-tool payload resolved licensing and EDR registration. This is a
-diagnostic lead, not a guarantee or a reason to edit signed JSON fields.
+During development, licensing and EDR registration recovered after replacing
+a legacy Python onboarding payload with the same organization's newer signed
+deployment-tool payload and restarting the service. The exact cause was not
+isolated; separate fresh-VM testing exposed missing package initialization.
+Neither observation justifies editing signed JSON or resetting existing state.
 
 ## Testing without using the enrolled workstation
 

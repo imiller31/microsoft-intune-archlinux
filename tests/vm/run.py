@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import signal
 import socket
 import subprocess
 import sys
@@ -38,14 +39,27 @@ def stop_vm(process, ssh, output):
     if process.poll() is not None:
         return
 
-    with (output / "guest-journal.log").open("wb") as log:
+    diagnostics = {
+        "guest-journal.log": "sudo journalctl -b --no-pager -n 400",
+        "intune-journal.log": (
+            f"{SESSION} journalctl --user -b --no-pager -n 120 "
+            "-u intune-agent.service -u arch-e2e-portal.service"
+        ),
+        "mde-journal.log": "sudo journalctl -b --no-pager -n 120 -u mdatp.service",
+        "desktop-windows.log": (
+            f"{SESSION} sh -c '"
+            "systemctl --user status arch-e2e-portal.service --no-pager; "
+            "xdotool search --onlyvisible --name . getwindowname %@'"
+        ),
+    }
+    for name, command in diagnostics.items():
         try:
-            subprocess.run(
-                [*ssh, "sudo journalctl -b --no-pager -n 400"],
-                stdout=log, stderr=subprocess.STDOUT, timeout=30, check=False,
-            )
+            with (output / name).open("wb") as log:
+                subprocess.run(
+                    [*ssh, command], stdout=log, stderr=subprocess.STDOUT, timeout=30, check=False,
+                )
         except subprocess.TimeoutExpired:
-            print("Guest journal collection timed out.", file=sys.stderr)
+            print(f"Diagnostic collection timed out: {name}", file=sys.stderr)
 
     process.terminate()
     try:
@@ -65,6 +79,8 @@ def main(argv=None):
         parser.error("The VM test requires an explicit manual workflow dispatch.")
     if not os.access("/dev/kvm", os.R_OK | os.W_OK):
         parser.error("Readable/writable /dev/kvm is required; software emulation is not a silent fallback.")
+
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
 
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -213,7 +229,12 @@ def main(argv=None):
                 f"cd mdatp-build && git checkout --detach {commit} && makepkg -si --noconfirm",
                 timeout=1200, log=output / "mdatp-install.log",
             )
-            remote("sudo systemctl enable --now mdatp.service", timeout=30)
+            remote(
+                "sudo systemctl daemon-reload && "
+                "sudo python3 checkout/.github/skills/arch-intune-mde/scripts/initialize_mde.py --apply && "
+                "sudo systemctl enable --now mdatp.service",
+                timeout=60, log=output / "mdatp-initialize.log",
+            )
             verify_phase("installed", before)
             print("Repeating setup to check preservation...", flush=True)
             remote(f"{SESSION} bash checkout/setup-intune-cachyos.sh --skip-vpn",

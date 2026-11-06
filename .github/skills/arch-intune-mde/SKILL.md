@@ -43,9 +43,10 @@ check-in separately from browser SSO; SSO alone is not device compliance.
 ## 4. Set up MDE separately
 
 Review the current `mdatp-bin` AUR build before installing it as the desktop user.
-Keep the real distribution visible to Defender and package managers. Start and
-enable `mdatp.service`, then check health in an environment without injected
-loader libraries. Follow the MDE section of [SETUP.md](SETUP.md).
+Keep the real distribution visible to Defender and package managers. For a fresh
+AUR installation, follow [SETUP.md](SETUP.md)'s first-start initialization before
+enabling `mdatp.service`. Preserve existing state for administrator review.
+Then check health in an environment without injected loader libraries.
 
 Preview a local organization-provided ZIP or script without executing it:
 
@@ -59,8 +60,9 @@ If existing same-tenant data differs, inspect the difference privately and use
 `--apply --replace` only with approval; a private backup is retained.
 Conflicting tenants or offboarding files require administrator review.
 
-If a legacy Python payload produces a UUID crash or missing license, compare
-it with the current deployment-tool payload from the same organization.
+For UUID crashes, check for missing package initialization before attributing
+failure to an onboarding payload. Compare legacy and current signed packages
+privately when investigating missing licensing.
 Syntactically valid JSON is not proof that the agent accepts it.
 Preserve the complete signed payload rather than editing individual fields.
 

@@ -190,8 +190,8 @@ fi
 # /usr/share/dbus-1/services/com.microsoft.identity.broker1.service) as the
 # transient unit dbus-:1.2-com.microsoft.identity.broker1@0.service, so a
 # systemd drop-in cannot inject env into it. Instead, wrap the binary and
-# override the D-Bus service file in /etc (which takes precedence over
-# /usr/share, so it survives package upgrades).
+# override the session D-Bus service under /usr/local/share (which takes
+# precedence over /usr/share and survives package upgrades).
 #
 # Symptom this fixes: under Wayland (KDE Plasma 6, Hyprland, etc.) the
 # broker's gtk_dialog_run() smartcard PIN prompt loops -- you get prompted
@@ -206,8 +206,8 @@ exec /opt/microsoft/identity-broker/bin/microsoft-identity-broker "$@"
 EOF
 sudo chmod +x /opt/microsoft/identity-broker/bin/microsoft-identity-broker.wrapper
 
-sudo mkdir -p /etc/dbus-1/services
-sudo tee /etc/dbus-1/services/com.microsoft.identity.broker1.service > /dev/null << 'EOF'
+sudo mkdir -p /usr/local/share/dbus-1/services
+sudo tee /usr/local/share/dbus-1/services/com.microsoft.identity.broker1.service > /dev/null << 'EOF'
 # Local override of /usr/share/dbus-1/services/com.microsoft.identity.broker1.service
 # Routes broker startup through a wrapper that forces GDK_BACKEND=x11.
 [D-BUS Service]
@@ -243,6 +243,7 @@ fi
 echo "[9/11] Enabling services..."
 sudo systemctl daemon-reload
 systemctl --user daemon-reload
+busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus ReloadConfig
 systemctl enable --user --now intune-agent.timer
 
 # ── Step 10: Install Azure VPN Client ────────────────────────────────────────

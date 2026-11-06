@@ -1,5 +1,9 @@
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 
@@ -39,6 +43,23 @@ def ready():
 
 
 class VMVerifierTests(unittest.TestCase):
+    def test_vm_runner_refuses_non_hosted_execution_without_writing_files(self):
+        environment = os.environ.copy()
+        environment.update({
+            "GITHUB_ACTIONS": "false",
+            "RUNNER_ENVIRONMENT": "self-hosted",
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+        })
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "must-not-exist"
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "tests/vm/run.py"), "--output", str(output)],
+                env=environment, capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("disposable GitHub-hosted runner", result.stderr)
+            self.assertFalse(output.exists())
+
     def test_changed_machine_identity_is_rejected(self):
         before = baseline()
         after = baseline()
