@@ -26,7 +26,7 @@ as_user() {
 
 install -d -o tester -g tester -m 700 \
     /home/tester/.pki /home/tester/.pki/nssdb /home/tester/.e2e-fixture \
-    /home/tester/.config/environment.d
+    /home/tester/.config /home/tester/.config/environment.d
 cat > /home/tester/.config/environment.d/arch-e2e.conf <<'EOF'
 DISPLAY=:99
 XDG_CURRENT_DESKTOP=XFCE
