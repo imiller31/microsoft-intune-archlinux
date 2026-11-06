@@ -32,7 +32,7 @@ def ready():
         "broker_backend": "x11",
         "checkin_result": "success",
         "sc_modules": 1,
-        "mde": {"licensed": False, "engine_version": "test-engine", "uuid_errors": 0},
+        "mde": {"licensed": False, "engine_version": "test-engine", "uuid_errors": 0, "invocation": "first-run"},
         "onboarding_present": False,
     })
     return observed
@@ -56,6 +56,7 @@ class VMVerifierTests(unittest.TestCase):
             ("mde", "licensed", None),
             ("mde", "engine_version", None),
             ("mde", "uuid_errors", 1),
+            ("mde", "invocation", ""),
             (None, "portal_visible", False),
             (None, "broker_backend", None),
             (None, "timer_enabled", False),

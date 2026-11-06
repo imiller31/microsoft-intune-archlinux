@@ -4,3 +4,4 @@ pkg
 *.zst
 __pycache__/
 *.pyc
+artifacts/

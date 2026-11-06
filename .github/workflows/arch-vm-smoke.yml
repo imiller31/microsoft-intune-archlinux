@@ -1,0 +1,54 @@
+name: Arch VM installation smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cachyos-setup-script
+    paths:
+      - .github/workflows/arch-vm-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  installation-smoke:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Require disposable hosted virtualization
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test -e /dev/kvm
+          sudo setfacl -m "u:$USER:rw" /dev/kvm
+      - name: Install host virtualization tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 qemu-utils cloud-image-utils gnupg
+      - name: Boot Arch and verify real installation, rerun, and reboot
+        run: python3 tests/vm/run.py
+      - name: Record test boundaries
+        if: always()
+        run: |
+          {
+            echo '## Arch VM installation smoke'
+            echo 'Agent-driven skill execution: **NOT RUN** (no model credentials).'
+            echo 'Corporate enrollment, MFA, and compliance: **NOT RUN**.'
+            if test -f artifacts/vm/summary.json; then
+              echo '```json'
+              cat artifacts/vm/summary.json
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: arch-vm-evidence
+          path: artifacts/vm/
+          if-no-files-found: warn
+          retention-days: 7

@@ -22,6 +22,13 @@ on GitHub-hosted infrastructure, not an enrolled workstation. Live enrollment,
 hardware MFA, antivirus operation, and corporate compliance require a separately
 approved disposable VM test.
 
+The manual [Arch VM installation smoke](.github/workflows/arch-vm-smoke.yml)
+workflow adds real package/service, desktop activation, preservation, rerun, and
+reboot checks in a disposable QEMU guest on GitHub-hosted infrastructure. It
+stops before enrollment and explicitly reports that agent-driven skill execution
+has not run without model credentials. See the skill's setup reference for
+dispatch instructions, image/package pins, evidence, and validation boundaries.
+
 ## Upstream guidance
 
 > To avoid breaking existing setup, **this repo will stay outdated until it stops working.**

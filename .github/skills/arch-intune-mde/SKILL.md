@@ -79,5 +79,8 @@ remaining failures, and any human/admin steps still required.
 ## Testing away from the workstation
 
 Use the fork's GitHub Actions checks and the disposable VM procedure in
-[SETUP.md](SETUP.md). Synthetic CI proves helper behavior, not real enrollment,
-hardware MFA, antivirus protection, or corporate compliance.
+[SETUP.md](SETUP.md). The manual VM installation lane exercises real packages,
+session activation, preservation, reruns, and reboot. Its agent and corporate
+enrollment lanes are explicitly not run. Synthetic CI and installation smoke
+checks do not prove agent skill execution, hardware MFA, antivirus protection,
+or corporate compliance.

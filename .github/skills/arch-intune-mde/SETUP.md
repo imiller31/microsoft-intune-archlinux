@@ -152,6 +152,40 @@ organization-approved test account. Take a snapshot before setup:
 Until that approved VM run is completed, report live setup, MFA, and corporate
 compliance as unverified. Keep real onboarding packages out of CI artifacts.
 
+### Automated VM installation lane
+
+The manual `Arch VM installation smoke` workflow boots a pinned, checksum-checked
+Arch cloud image and verifies its signature with the arch-boxes public key
+published in the [Arch image project's README](https://gitlab.archlinux.org/archlinux/arch-boxes).
+It runs only on a disposable GitHub-hosted runner with KVM. Its push trigger
+registers the workflow from this fork's non-default branch; VM jobs run only
+after an explicit manual dispatch.
+
+```sh
+gh workflow run arch-vm-smoke.yml \
+    --repo imiller31/microsoft-intune-archlinux --ref cachyos-setup-script
+```
+
+The guest has a synthetic X11/Xfce user session, OpenSC policy, unrelated service
+drop-in, and NSS certificate. Real Intune packages and a reviewed, pinned AUR
+Defender package are installed as the desktop user. The host independently
+verifies preservation, visible portal launch, broker activation/environment,
+check-in service execution, unlicensed Defender engine startup, repeated setup,
+and reboot persistence. It samples Defender twice per phase to detect restarts.
+
+`tests/vm/image.json` pins the image digest and AUR commit. Review their upstream
+changes before updating those pins. No tenant package, login, corporate account,
+or model credential is supplied. No disk, SSH key, or private fixture key is
+uploaded. Only installation logs and non-enrollment evidence are retained for
+seven days; the runner terminates QEMU and removes its temporary disk and keys.
+
+The artifacts explicitly distinguish `installation_smoke` from
+`agent_execution: not_run_no_model_credentials` and
+`corporate_enrollment: not_run_not_authorized`. A green installation job is not
+an end-to-end skill pass. The future agent lane must use approved CI model
+authentication, execute the skill as the desktop user, and reuse the host's
+independent verifier; agent-written summaries cannot satisfy the oracle.
+
 ## Public references
 
 - [Microsoft Linux enrollment](https://learn.microsoft.com/en-us/intune/intune-service/user-help/enroll-device-linux)
